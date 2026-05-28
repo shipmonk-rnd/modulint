@@ -25,8 +25,10 @@ use function in_array;
 use function interface_exists;
 use function is_dir;
 use function is_file;
+use function preg_match;
 use function realpath;
 use function str_ends_with;
+use function str_replace;
 use function str_starts_with;
 use function strlen;
 use function substr;
@@ -262,7 +264,7 @@ final class Modulint
         $files = [];
 
         foreach ($module->paths as $path) {
-            $absolutePath = str_starts_with($path, '/') ? $path : "{$baseDir}/{$path}";
+            $absolutePath = $this->isAbsolutePath($path) ? $path : "{$baseDir}/{$path}";
 
             if (is_file($absolutePath)) {
                 $files[] = $this->realPath($absolutePath);
@@ -357,7 +359,12 @@ final class Modulint
             throw new LogicException("Path {$path} does not exist");
         }
 
-        return $absolutePath;
+        return str_replace('\\', '/', $absolutePath);
+    }
+
+    private function isAbsolutePath(string $path): bool
+    {
+        return preg_match('~^(?:/|\\\\|[a-zA-Z]:)~', $path) === 1;
     }
 
     private function shortenPath(
