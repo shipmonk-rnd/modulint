@@ -1,0 +1,81 @@
+{
+    "name": "shipmonk/modulint",
+    "description": "Enforce architecture by defining modules with allowed dependencies. Detects forbidden, uncovered, missing and unused module dependencies in PHP projects.",
+    "license": [
+        "MIT"
+    ],
+    "keywords": [
+        "dev",
+        "static analysis",
+        "architecture",
+        "modules",
+        "dependencies",
+        "linter",
+        "boundaries"
+    ],
+    "require": {
+        "php": "^8.1",
+        "composer-runtime-api": "^2.0",
+        "nikic/php-parser": "^4.18 || ^5.0"
+    },
+    "require-dev": {
+        "editorconfig-checker/editorconfig-checker": "^10.7.0",
+        "ergebnis/composer-normalize": "^2.19.0",
+        "phpstan/phpstan": "^2.2.0",
+        "phpstan/phpstan-phpunit": "^2.0",
+        "phpstan/phpstan-strict-rules": "^2.0",
+        "phpunit/phpunit": "^10.5.62",
+        "shipmonk/coding-standard": "^0.2.0",
+        "shipmonk/composer-dependency-analyser": "^1.8",
+        "shipmonk/name-collision-detector": "^2.1.1",
+        "shipmonk/phpstan-rules": "^4.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "ShipMonk\\Modulint\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "ShipMonk\\Modulint\\Tests\\": "tests/"
+        },
+        "classmap": [
+            "tests/_fixtures/"
+        ]
+    },
+    "bin": [
+        "bin/modulint"
+    ],
+    "config": {
+        "allow-plugins": {
+            "dealerdirect/phpcodesniffer-composer-installer": false,
+            "ergebnis/composer-normalize": true
+        },
+        "sort-packages": true
+    },
+    "scripts": {
+        "check": [
+            "@check:composer",
+            "@check:ec",
+            "@check:cs",
+            "@check:types",
+            "@check:tests",
+            "@check:dependencies",
+            "@check:collisions",
+            "@check:self"
+        ],
+        "check:collisions": "detect-collisions src tests",
+        "check:composer": [
+            "composer normalize --dry-run --no-check-lock --no-update-lock",
+            "composer validate --strict",
+            "composer dump-autoload -o --strict-psr"
+        ],
+        "check:cs": "phpcs",
+        "check:dependencies": "composer-dependency-analyser",
+        "check:ec": "ec src tests",
+        "check:self": "bin/modulint",
+        "check:tests": "phpunit",
+        "check:types": "phpstan analyse -vv --ansi",
+        "fix:cs": "phpcbf"
+    }
+}

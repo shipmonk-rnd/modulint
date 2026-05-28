@@ -1,0 +1,73 @@
+#!/usr/bin/env php
+<?php declare(strict_types = 1);
+
+namespace ShipMonk\Modulint\Bin;
+
+use Composer\Autoload\ClassLoader;
+use ShipMonk\Modulint\Config\Configuration;
+use ShipMonk\Modulint\Modulint;
+use ShipMonk\Modulint\ResultFormatter\ConsoleResultFormatter;
+use function fwrite;
+use function getcwd;
+use function getenv;
+use function is_file;
+use const PHP_EOL;
+use const STDERR;
+use const STDOUT;
+
+(static function (): void {
+    $autoloadCandidates = [
+        __DIR__ . '/../vendor/autoload.php',
+        __DIR__ . '/../../../autoload.php', // installed inside another project's vendor/
+    ];
+
+    $classLoader = null;
+
+    foreach ($autoloadCandidates as $candidate) {
+        if (is_file($candidate)) {
+            /** @var ClassLoader $classLoader */
+            $classLoader = require $candidate;
+            break;
+        }
+    }
+
+    if ($classLoader === null) {
+        fwrite(STDERR, 'Could not locate Composer autoloader.' . PHP_EOL);
+        exit(2);
+    }
+
+    $cwd = getcwd();
+
+    if ($cwd === false) {
+        fwrite(STDERR, 'Could not determine working directory.' . PHP_EOL);
+        exit(2);
+    }
+
+    $configPath = $cwd . '/modulint.php';
+
+    if (!is_file($configPath)) {
+        fwrite(STDERR, "No modulint.php config found in {$cwd}." . PHP_EOL);
+        exit(2);
+    }
+
+    $config = require $configPath;
+
+    if (!$config instanceof Configuration) {
+        fwrite(STDERR, 'modulint.php must return a ' . Configuration::class . ' instance.' . PHP_EOL);
+        exit(2);
+    }
+
+    $enforcer = new Modulint();
+
+    $result = $enforcer->enforce(
+        $classLoader,
+        $cwd,
+        $config->getModules(),
+        $config->getFullyModulizedDirectories(),
+    );
+
+    $formatter = new ConsoleResultFormatter(STDOUT, getenv('NO_COLOR') !== false);
+    $formatter->format($result);
+
+    exit($result->isSuccessful() ? 0 : 1);
+})();
