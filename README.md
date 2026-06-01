@@ -76,6 +76,31 @@ vendor/bin/modulint
 
 Exit code is `0` when everything is clean and `1` otherwise.
 
+## Example output
+
+When something is wrong, modulint groups the violations by type and points at the exact file-to-file edge that broke the rule:
+
+```
+[MISSING]   Directory 'src' contain files that are not part of any module
+              src/Legacy/MailerHelper.php
+              src/Legacy/LegacyClock.php
+
+[FORBIDDEN] Module 'Logging' has forbidden dependency on module 'Doctrine'
+              src/Logging/DatabaseLogHandler.php -> src/Doctrine/EntityManager.php
+
+[UNCOVERED] Module 'Api' has dependency on files that are not part of any module
+              src/Api/UserController.php -> src/Legacy/MailerHelper.php
+
+[UNUSED]    Module 'Api' declares dependencies that are never used
+              Logging
+```
+
+When everything checks out:
+
+```
+ [OK] No module dependency issues found
+```
+
 ## Concepts
 
 ### Module identifier
