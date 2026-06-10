@@ -90,6 +90,32 @@ final class ConsoleResultFormatter implements ResultFormatter
             $this->print("\n");
         }
 
+        foreach ($result->overlappingModuleErrors as $errors) {
+            $moduleAName = $errors[0]->moduleA->identifier->name;
+            $moduleBName = $errors[0]->moduleB->identifier->name;
+            $this->print("<red>[OVERLAP]</red>   Modules '<green>{$moduleAName}</green>' and '<green>{$moduleBName}</green>' share files but are not nested\n");
+
+            $indent = str_repeat(' ', 14);
+
+            foreach ($errors as $error) {
+                $this->print(sprintf("%s%s\n", $indent, $this->formatPath($error->filePath)));
+            }
+
+            $this->print("\n");
+        }
+
+        if ($result->staleBaselineErrors !== []) {
+            $this->print("<orange>[STALE]</orange>     Baseline contains entries that no longer match any error, regenerate it\n");
+
+            $indent = str_repeat(' ', 14);
+
+            foreach ($result->staleBaselineErrors as $staleBaselineError) {
+                $this->print(sprintf("%s%s\n", $indent, $staleBaselineError));
+            }
+
+            $this->print("\n");
+        }
+
         if ($result->isSuccessful()) {
             $this->print("\n");
             $this->print(sprintf("<green-bg> %-*s </green-bg>\n", 80, ''));

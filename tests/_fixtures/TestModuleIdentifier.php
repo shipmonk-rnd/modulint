@@ -11,6 +11,9 @@ enum TestModuleIdentifier: string implements ModuleIdentifier
     case ModuleB = 'ModuleB';
     case ModuleC = 'ModuleC';
     case ModuleD = 'ModuleD';
+    case ModuleE = 'ModuleE';
+    case ModuleF = 'ModuleF';
+    case ModuleX = 'ModuleX';
     case ParentAB = 'ParentAB';
 
 }

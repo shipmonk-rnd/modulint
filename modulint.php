@@ -30,10 +30,12 @@ return (new Configuration())
             'src/Result.php',
             'src/ResultFormatter.php',
             'src/ExtractUsedClassLikeSymbolsVisitor.php',
+            'src/Baseline',
             'src/Error',
             'src/ResultFormatter',
         ],
         dependencies: [
+            ModulintModule::Config,
             ModulintModule::Exception,
             ModulintModule::VendorComposerClassLoader,
             ModulintModule::VendorNikicPhpParser,

@@ -15,12 +15,16 @@ final class Module
      * @param list<string> $paths
      * @param list<self> $modules Child modules whose files are also part of this module
      * @param list<ModuleIdentifier>|null $dependencies
+     * @param list<string> $excludePaths Files or directories within $paths that are not part of this module
+     * @param list<string> $allowedDependencyPaths Files or directories this module can always depend on, regardless of module coverage
      */
     public function __construct(
         public readonly ModuleIdentifier $identifier,
         public readonly array $paths = [],
         public readonly array $modules = [],
         public readonly ?array $dependencies = [],
+        public readonly array $excludePaths = [],
+        public readonly array $allowedDependencyPaths = [],
     )
     {
     }
@@ -32,6 +36,20 @@ final class Module
             [...$this->paths, $path],
             $this->modules,
             $this->dependencies,
+            $this->excludePaths,
+            $this->allowedDependencyPaths,
+        );
+    }
+
+    public function withExcludedPath(string $path): self
+    {
+        return new self(
+            $this->identifier,
+            $this->paths,
+            $this->modules,
+            $this->dependencies,
+            [...$this->excludePaths, $path],
+            $this->allowedDependencyPaths,
         );
     }
 
@@ -42,6 +60,8 @@ final class Module
             $this->paths,
             [...$this->modules, $module],
             $this->dependencies,
+            $this->excludePaths,
+            $this->allowedDependencyPaths,
         );
     }
 
@@ -56,6 +76,20 @@ final class Module
             $this->paths,
             $this->modules,
             [...$this->dependencies, $dependency],
+            $this->excludePaths,
+            $this->allowedDependencyPaths,
+        );
+    }
+
+    public function canDependOnPath(string $path): self
+    {
+        return new self(
+            $this->identifier,
+            $this->paths,
+            $this->modules,
+            $this->dependencies,
+            $this->excludePaths,
+            [...$this->allowedDependencyPaths, $path],
         );
     }
 
@@ -66,6 +100,8 @@ final class Module
             $this->paths,
             $this->modules,
             null,
+            $this->excludePaths,
+            $this->allowedDependencyPaths,
         );
     }
 

@@ -16,6 +16,7 @@ A *module* is a named bag of paths (files and/or directories). For each module y
 - **Uncovered dependency** — module `X` uses a class that is not part of any declared module.
 - **Missing module** — a file inside a "fully-modulized" directory is not covered by any module.
 - **Unused dependency** — module `X` declares a dependency on module `Y` but never actually uses anything from it.
+- **Overlapping modules** (opt-in) — a file belongs to two modules that are not nested in each other.
 
 ## Installation
 
@@ -124,6 +125,64 @@ A dependency on a *parent* module implicitly allows dependencies on its nested `
 ### Vendor modules
 
 A common pattern is to declare one module per relevant vendor package, pointing at `vendor/<package>` as its paths, with `dependencies: null`. That lets you assert which parts of your code may use which vendor library — typically the most useful kind of architectural rule.
+
+### Excluded paths
+
+`excludePaths` removes files or directories from a module's `paths`. Useful for carving a submodule out of a directory without nesting:
+
+```php
+new Module(
+    AppModule::Shipping,
+    paths: ['src/Shipping'],
+    excludePaths: ['src/Shipping/Integration'], // owned by another module
+    dependencies: [...],
+)
+```
+
+### Allowed dependency paths
+
+When a module may use *anything* under some path (typically `vendor/`) without enumerating vendor modules, allow the path instead:
+
+```php
+new Module(
+    AppModule::Api,
+    paths: ['src/Api'],
+    dependencies: [AppModule::Logging],
+    allowedDependencyPaths: ['vendor'], // anything under vendor/ is fine
+)
+```
+
+To allow a path for *every* module, configure it globally:
+
+```php
+(new Configuration())->addAlwaysAllowedDependencyPath('vendor')
+```
+
+Symbols resolved into an allowed path never produce forbidden or uncovered errors, even when the path is also covered by other modules.
+
+### Ignored attribute usages
+
+Class references inside arguments of selected attributes can be excluded from analysis (the attribute class itself still counts):
+
+```php
+(new Configuration())->ignoreUsagesInAttributes([InternalAllowedScope::class])
+```
+
+With that config, `#[InternalAllowedScope([SomeClass::class, 'method'])]` does not make the enclosing module depend on `SomeClass`.
+
+### Flat modules
+
+`(new Configuration())->enforceFlatModules()` reports any file claimed by two modules where neither is a (transitive) child of the other. Parent/child overlap from nested `modules: [...]` stays allowed.
+
+### Baseline
+
+To adopt modulint in a codebase with existing violations, generate a baseline:
+
+```sh
+vendor/bin/modulint --generate-baseline
+```
+
+This writes all current errors to `modulint-baseline.php` (customizable via `setBaselineFile()`). When that file exists, the listed errors are ignored on subsequent runs, and entries that no longer match any real error are reported as stale so the baseline only ever shrinks.
 
 ## Disable colored output
 

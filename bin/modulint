@@ -4,22 +4,44 @@
 namespace ShipMonk\Modulint\Bin;
 
 use Composer\Autoload\ClassLoader;
+use ShipMonk\Modulint\Baseline\Baseline;
+use ShipMonk\Modulint\Baseline\BaselineGenerator;
 use ShipMonk\Modulint\Config\Configuration;
 use ShipMonk\Modulint\Modulint;
 use ShipMonk\Modulint\ResultFormatter\ConsoleResultFormatter;
+use function array_slice;
+use function file_put_contents;
 use function fwrite;
 use function getcwd;
 use function getenv;
+use function implode;
+use function in_array;
+use function is_array;
 use function is_file;
+use function is_string;
 use const PHP_EOL;
 use const STDERR;
 use const STDOUT;
 
-(static function (): void {
-    $autoloadCandidates = [
-        __DIR__ . '/../vendor/autoload.php',
-        __DIR__ . '/../../../autoload.php', // installed inside another project's vendor/
-    ];
+(static function (mixed $argvInput): void {
+    $args = [];
+
+    if (is_array($argvInput)) {
+        foreach (array_slice($argvInput, 1) as $arg) {
+            if (is_string($arg)) {
+                $args[] = $arg;
+            }
+        }
+    }
+
+    $autoloadCandidates = [];
+
+    if (isset($GLOBALS['_composer_autoload_path']) && is_string($GLOBALS['_composer_autoload_path'])) {
+        $autoloadCandidates[] = $GLOBALS['_composer_autoload_path']; // set by composer's vendor/bin proxy, works even for symlinked path repositories
+    }
+
+    $autoloadCandidates[] = __DIR__ . '/../../../autoload.php'; // installed inside another project's vendor/
+    $autoloadCandidates[] = __DIR__ . '/../vendor/autoload.php'; // modulint's own development
 
     $classLoader = null;
 
@@ -33,6 +55,21 @@ use const STDOUT;
 
     if ($classLoader === null) {
         fwrite(STDERR, 'Could not locate Composer autoloader.' . PHP_EOL);
+        exit(2);
+    }
+
+    $generateBaseline = in_array('--generate-baseline', $args, true);
+    $unknownArgs = [];
+
+    foreach ($args as $arg) {
+        if ($arg !== '--generate-baseline') {
+            $unknownArgs[] = $arg;
+        }
+    }
+
+    if ($unknownArgs !== []) {
+        fwrite(STDERR, 'Unknown arguments: ' . implode(' ', $unknownArgs) . PHP_EOL);
+        fwrite(STDERR, 'Usage: modulint [--generate-baseline]' . PHP_EOL);
         exit(2);
     }
 
@@ -62,12 +99,29 @@ use const STDOUT;
     $result = $enforcer->enforce(
         $classLoader,
         $cwd,
-        $config->getModules(),
-        $config->getFullyModulizedDirectories(),
+        $config,
     );
+
+    $baselinePath = "{$cwd}/{$config->getBaselineFile()}";
+
+    if ($generateBaseline) {
+        $content = (new BaselineGenerator())->generateFileContent($result);
+
+        if (file_put_contents($baselinePath, $content) === false) {
+            fwrite(STDERR, "Could not write baseline to {$baselinePath}." . PHP_EOL);
+            exit(2);
+        }
+
+        fwrite(STDOUT, "Baseline generated at {$config->getBaselineFile()}." . PHP_EOL);
+        exit(0);
+    }
+
+    if (is_file($baselinePath)) {
+        $result = Baseline::fromFile($baselinePath)->apply($result);
+    }
 
     $formatter = new ConsoleResultFormatter(STDOUT, getenv('NO_COLOR') !== false);
     $formatter->format($result);
 
     exit($result->isSuccessful() ? 0 : 1);
-})();
+})($_SERVER['argv'] ?? null);

@@ -4,19 +4,27 @@ namespace ShipMonk\Modulint\Tests;
 
 use Composer\Autoload\ClassLoader;
 use PHPUnit\Framework\TestCase;
+use ShipMonk\Modulint\Baseline\Baseline;
+use ShipMonk\Modulint\Baseline\BaselineGenerator;
+use ShipMonk\Modulint\Config\Configuration;
+use ShipMonk\Modulint\Fixtures\ModuleF\IgnoredAttr;
 use ShipMonk\Modulint\Fixtures\TestModuleIdentifier;
 use ShipMonk\Modulint\Module;
 use ShipMonk\Modulint\Modulint;
+use ShipMonk\Modulint\Result;
+use function file_put_contents;
+use function sys_get_temp_dir;
+use function tempnam;
+use function unlink;
 
 final class ModulintTest extends TestCase
 {
 
     public function testEnforceWithEmptyModulesArray(): void
     {
-        $modulint = new Modulint();
         $classLoader = $this->createMock(ClassLoader::class);
 
-        $result = $modulint->enforce($classLoader, __DIR__, []);
+        $result = $this->enforce($classLoader, new Configuration());
 
         self::assertTrue($result->isSuccessful());
         self::assertEmpty($result->forbiddenDependencyErrors);
@@ -27,7 +35,6 @@ final class ModulintTest extends TestCase
 
     public function testEnforceWithForbiddenDependency(): void
     {
-        $modulint = new Modulint();
         $classLoader = $this->createClassLoaderMock();
 
         $moduleA = new Module(
@@ -43,7 +50,7 @@ final class ModulintTest extends TestCase
             [],
         );
 
-        $result = $modulint->enforce($classLoader, __DIR__, [$moduleA, $moduleB]);
+        $result = $this->enforce($classLoader, (new Configuration())->addModules([$moduleA, $moduleB]));
 
         self::assertFalse($result->isSuccessful());
         self::assertNotEmpty($result->forbiddenDependencyErrors);
@@ -53,7 +60,6 @@ final class ModulintTest extends TestCase
 
     public function testEnforceWithAllowedDependency(): void
     {
-        $modulint = new Modulint();
         $classLoader = $this->createClassLoaderMock();
 
         $moduleA = new Module(
@@ -69,7 +75,7 @@ final class ModulintTest extends TestCase
             [],
         );
 
-        $result = $modulint->enforce($classLoader, __DIR__, [$moduleA, $moduleB]);
+        $result = $this->enforce($classLoader, (new Configuration())->addModules([$moduleA, $moduleB]));
 
         self::assertTrue($result->isSuccessful());
         self::assertEmpty($result->forbiddenDependencyErrors);
@@ -80,7 +86,6 @@ final class ModulintTest extends TestCase
 
     public function testEnforceWithUncoveredDependency(): void
     {
-        $modulint = new Modulint();
         $classLoader = $this->createClassLoaderMock();
 
         $moduleC = new Module(
@@ -90,7 +95,7 @@ final class ModulintTest extends TestCase
             [],
         );
 
-        $result = $modulint->enforce($classLoader, __DIR__, [$moduleC]);
+        $result = $this->enforce($classLoader, (new Configuration())->addModule($moduleC));
 
         self::assertFalse($result->isSuccessful());
         self::assertNotEmpty($result->uncoveredDependencyErrors);
@@ -99,14 +104,11 @@ final class ModulintTest extends TestCase
 
     public function testEnforceWithMissingModuleError(): void
     {
-        $modulint = new Modulint();
         $classLoader = $this->createClassLoaderMock();
 
-        $result = $modulint->enforce(
+        $result = $this->enforce(
             $classLoader,
-            __DIR__,
-            [],
-            ['_fixtures/FullyModulized'],
+            (new Configuration())->addFullyModulizedDirectory('_fixtures/FullyModulized'),
         );
 
         self::assertFalse($result->isSuccessful());
@@ -116,7 +118,6 @@ final class ModulintTest extends TestCase
 
     public function testEnforceWithModuleWithNullDependencies(): void
     {
-        $modulint = new Modulint();
         $classLoader = $this->createClassLoaderMock();
 
         $moduleA = new Module(
@@ -132,7 +133,7 @@ final class ModulintTest extends TestCase
             [],
         );
 
-        $result = $modulint->enforce($classLoader, __DIR__, [$moduleA, $moduleB]);
+        $result = $this->enforce($classLoader, (new Configuration())->addModules([$moduleA, $moduleB]));
 
         self::assertTrue($result->isSuccessful());
         self::assertEmpty($result->forbiddenDependencyErrors);
@@ -143,7 +144,6 @@ final class ModulintTest extends TestCase
 
     public function testEnforceWithNestedModuleAllowedDependency(): void
     {
-        $modulint = new Modulint();
         $classLoader = $this->createClassLoaderMock();
 
         $moduleA = new Module(
@@ -170,7 +170,7 @@ final class ModulintTest extends TestCase
             [TestModuleIdentifier::ParentAB],
         );
 
-        $result = $modulint->enforce($classLoader, __DIR__, [$moduleA, $moduleB, $parentAB, $moduleD]);
+        $result = $this->enforce($classLoader, (new Configuration())->addModules([$moduleA, $moduleB, $parentAB, $moduleD]));
 
         self::assertTrue($result->isSuccessful());
         self::assertEmpty($result->forbiddenDependencyErrors);
@@ -180,7 +180,6 @@ final class ModulintTest extends TestCase
 
     public function testEnforceWithNestedModuleForbiddenDependency(): void
     {
-        $modulint = new Modulint();
         $classLoader = $this->createClassLoaderMock();
 
         $moduleA = new Module(
@@ -207,7 +206,7 @@ final class ModulintTest extends TestCase
             [],
         );
 
-        $result = $modulint->enforce($classLoader, __DIR__, [$moduleA, $moduleB, $parentAB, $moduleD]);
+        $result = $this->enforce($classLoader, (new Configuration())->addModules([$moduleA, $moduleB, $parentAB, $moduleD]));
 
         self::assertFalse($result->isSuccessful());
         self::assertNotEmpty($result->forbiddenDependencyErrors);
@@ -216,7 +215,6 @@ final class ModulintTest extends TestCase
 
     public function testEnforceWithNestedModuleDirectChildDependency(): void
     {
-        $modulint = new Modulint();
         $classLoader = $this->createClassLoaderMock();
 
         $moduleA = new Module(
@@ -243,14 +241,13 @@ final class ModulintTest extends TestCase
             [TestModuleIdentifier::ModuleA], // depends on child directly, not parent
         );
 
-        $result = $modulint->enforce($classLoader, __DIR__, [$moduleA, $moduleB, $parentAB, $moduleD]);
+        $result = $this->enforce($classLoader, (new Configuration())->addModules([$moduleA, $moduleB, $parentAB, $moduleD]));
 
         self::assertTrue($result->isSuccessful());
     }
 
     public function testEnforceWithNestedModuleMissingModuleDetection(): void
     {
-        $modulint = new Modulint();
         $classLoader = $this->createClassLoaderMock();
 
         $moduleA = new Module(
@@ -267,7 +264,12 @@ final class ModulintTest extends TestCase
         );
 
         // Files in ModuleA are covered by both ModuleA and ParentAB
-        $result = $modulint->enforce($classLoader, __DIR__, [$moduleA, $parentAB], ['_fixtures/ModuleA']);
+        $result = $this->enforce(
+            $classLoader,
+            (new Configuration())
+                ->addModules([$moduleA, $parentAB])
+                ->addFullyModulizedDirectory('_fixtures/ModuleA'),
+        );
 
         self::assertTrue($result->isSuccessful());
         self::assertEmpty($result->missingModuleErrors);
@@ -275,7 +277,6 @@ final class ModulintTest extends TestCase
 
     public function testEnforceWithUnusedDependency(): void
     {
-        $modulint = new Modulint();
         $classLoader = $this->createClassLoaderMock();
 
         $moduleA = new Module(
@@ -297,13 +298,275 @@ final class ModulintTest extends TestCase
             null,
         );
 
-        $result = $modulint->enforce($classLoader, __DIR__, [$moduleA, $moduleB, $moduleC]);
+        $result = $this->enforce($classLoader, (new Configuration())->addModules([$moduleA, $moduleB, $moduleC]));
 
         self::assertFalse($result->isSuccessful());
         self::assertEmpty($result->forbiddenDependencyErrors);
         self::assertArrayHasKey('ModuleA', $result->unusedDependencyErrors);
         self::assertCount(1, $result->unusedDependencyErrors['ModuleA']);
         self::assertSame(TestModuleIdentifier::ModuleC, $result->unusedDependencyErrors['ModuleA'][0]->unusedDependency);
+    }
+
+    public function testEnforceWithExcludedPath(): void
+    {
+        $classLoader = $this->createClassLoaderMock();
+
+        $moduleE = new Module(
+            TestModuleIdentifier::ModuleE,
+            [__DIR__ . '/_fixtures/ModuleE'],
+            excludePaths: [__DIR__ . '/_fixtures/ModuleE/Sub'],
+        );
+
+        $result = $this->enforce(
+            $classLoader,
+            (new Configuration())
+                ->addModule($moduleE)
+                ->addFullyModulizedDirectory('_fixtures/ModuleE'),
+        );
+
+        self::assertFalse($result->isSuccessful());
+        self::assertArrayHasKey('_fixtures/ModuleE', $result->missingModuleErrors);
+        self::assertCount(1, $result->missingModuleErrors['_fixtures/ModuleE']);
+        self::assertSame('_fixtures/ModuleE/Sub/ClassESub.php', $result->missingModuleErrors['_fixtures/ModuleE'][0]->filePath);
+    }
+
+    public function testEnforceWithAllowedDependencyPathForUncoveredSymbol(): void
+    {
+        $classLoader = $this->createClassLoaderMock();
+
+        $moduleC = new Module(
+            TestModuleIdentifier::ModuleC,
+            [__DIR__ . '/_fixtures/ModuleC'],
+            [],
+            [],
+            allowedDependencyPaths: [__DIR__ . '/_fixtures/External'],
+        );
+
+        $result = $this->enforce($classLoader, (new Configuration())->addModule($moduleC));
+
+        self::assertTrue($result->isSuccessful());
+        self::assertEmpty($result->uncoveredDependencyErrors);
+    }
+
+    public function testEnforceWithGlobalAllowedDependencyPath(): void
+    {
+        $classLoader = $this->createClassLoaderMock();
+
+        $moduleC = new Module(
+            TestModuleIdentifier::ModuleC,
+            [__DIR__ . '/_fixtures/ModuleC'],
+            [],
+            [],
+        );
+
+        $result = $this->enforce(
+            $classLoader,
+            (new Configuration())
+                ->addModule($moduleC)
+                ->addAlwaysAllowedDependencyPath('_fixtures/External'),
+        );
+
+        self::assertTrue($result->isSuccessful());
+        self::assertEmpty($result->uncoveredDependencyErrors);
+    }
+
+    public function testEnforceWithAllowedDependencyPathForCoveredSymbol(): void
+    {
+        $classLoader = $this->createClassLoaderMock();
+
+        $moduleA = (new Module(
+            TestModuleIdentifier::ModuleA,
+            [__DIR__ . '/_fixtures/ModuleA'],
+            [],
+            [],
+        ))->canDependOnPath(__DIR__ . '/_fixtures/ModuleB');
+        $moduleB = new Module(
+            TestModuleIdentifier::ModuleB,
+            [__DIR__ . '/_fixtures/ModuleB'],
+            [],
+            [],
+        );
+
+        $result = $this->enforce($classLoader, (new Configuration())->addModules([$moduleA, $moduleB]));
+
+        self::assertTrue($result->isSuccessful());
+        self::assertEmpty($result->forbiddenDependencyErrors);
+    }
+
+    public function testEnforceWithAttributeUsageNotIgnored(): void
+    {
+        $classLoader = $this->createClassLoaderMock();
+
+        $moduleF = new Module(
+            TestModuleIdentifier::ModuleF,
+            [__DIR__ . '/_fixtures/ModuleF'],
+            [],
+            [],
+        );
+        $moduleB = new Module(
+            TestModuleIdentifier::ModuleB,
+            [__DIR__ . '/_fixtures/ModuleB'],
+            [],
+            [],
+        );
+
+        $result = $this->enforce($classLoader, (new Configuration())->addModules([$moduleF, $moduleB]));
+
+        self::assertFalse($result->isSuccessful());
+        self::assertArrayHasKey('ModuleF', $result->forbiddenDependencyErrors);
+        self::assertArrayHasKey('ModuleB', $result->forbiddenDependencyErrors['ModuleF']);
+    }
+
+    public function testEnforceWithIgnoredAttributeUsage(): void
+    {
+        $classLoader = $this->createClassLoaderMock();
+
+        $moduleF = new Module(
+            TestModuleIdentifier::ModuleF,
+            [__DIR__ . '/_fixtures/ModuleF'],
+            [],
+            [],
+        );
+        $moduleB = new Module(
+            TestModuleIdentifier::ModuleB,
+            [__DIR__ . '/_fixtures/ModuleB'],
+            [],
+            [],
+        );
+
+        $result = $this->enforce(
+            $classLoader,
+            (new Configuration())
+                ->addModules([$moduleF, $moduleB])
+                ->ignoreUsagesInAttributes([IgnoredAttr::class]),
+        );
+
+        self::assertTrue($result->isSuccessful());
+        self::assertEmpty($result->forbiddenDependencyErrors);
+    }
+
+    public function testEnforceWithOverlappingModules(): void
+    {
+        $classLoader = $this->createClassLoaderMock();
+
+        $moduleA = new Module(
+            TestModuleIdentifier::ModuleA,
+            [__DIR__ . '/_fixtures/ModuleA'],
+            [],
+            null,
+        );
+        $moduleX = new Module(
+            TestModuleIdentifier::ModuleX,
+            [__DIR__ . '/_fixtures/ModuleA'],
+            [],
+            null,
+        );
+
+        $result = $this->enforce(
+            $classLoader,
+            (new Configuration())
+                ->addModules([$moduleA, $moduleX])
+                ->enforceFlatModules(),
+        );
+
+        self::assertFalse($result->isSuccessful());
+        self::assertArrayHasKey('ModuleA & ModuleX', $result->overlappingModuleErrors);
+        self::assertSame('_fixtures/ModuleA/ClassA.php', $result->overlappingModuleErrors['ModuleA & ModuleX'][0]->filePath);
+    }
+
+    public function testEnforceWithNestedModulesNotOverlapping(): void
+    {
+        $classLoader = $this->createClassLoaderMock();
+
+        $moduleA = new Module(
+            TestModuleIdentifier::ModuleA,
+            [__DIR__ . '/_fixtures/ModuleA'],
+            [],
+            null,
+        );
+        $parentAB = new Module(
+            TestModuleIdentifier::ParentAB,
+            [],
+            [$moduleA],
+            null,
+        );
+
+        $result = $this->enforce(
+            $classLoader,
+            (new Configuration())
+                ->addModules([$moduleA, $parentAB])
+                ->enforceFlatModules(),
+        );
+
+        self::assertTrue($result->isSuccessful());
+        self::assertEmpty($result->overlappingModuleErrors);
+    }
+
+    public function testBaselineGenerateAndApply(): void
+    {
+        $classLoader = $this->createClassLoaderMock();
+
+        $moduleA = new Module(
+            TestModuleIdentifier::ModuleA,
+            [__DIR__ . '/_fixtures/ModuleA'],
+            [],
+            [],
+        );
+        $moduleB = new Module(
+            TestModuleIdentifier::ModuleB,
+            [__DIR__ . '/_fixtures/ModuleB'],
+            [],
+            [],
+        );
+        $moduleC = new Module(
+            TestModuleIdentifier::ModuleC,
+            [__DIR__ . '/_fixtures/ModuleC'],
+            [],
+            [],
+        );
+
+        $result = $this->enforce($classLoader, (new Configuration())->addModules([$moduleA, $moduleB, $moduleC]));
+
+        self::assertFalse($result->isSuccessful());
+        self::assertNotEmpty($result->forbiddenDependencyErrors);
+        self::assertNotEmpty($result->uncoveredDependencyErrors);
+
+        $baselineFilePath = tempnam(sys_get_temp_dir(), 'modulint-baseline-');
+        self::assertNotFalse($baselineFilePath);
+
+        file_put_contents($baselineFilePath, (new BaselineGenerator())->generateFileContent($result));
+
+        $baseline = Baseline::fromFile($baselineFilePath);
+        unlink($baselineFilePath);
+
+        $filteredResult = $baseline->apply($result);
+
+        self::assertTrue($filteredResult->isSuccessful());
+        self::assertEmpty($filteredResult->forbiddenDependencyErrors);
+        self::assertEmpty($filteredResult->uncoveredDependencyErrors);
+        self::assertEmpty($filteredResult->staleBaselineErrors);
+    }
+
+    public function testBaselineStaleEntry(): void
+    {
+        $baseline = new Baseline(
+            forbiddenDependencies: ['ModuleA' => ['ModuleB' => ['nonexistent.php -> other.php']]],
+        );
+
+        $cleanResult = new Result([], [], [], []);
+        $filteredResult = $baseline->apply($cleanResult);
+
+        self::assertFalse($filteredResult->isSuccessful());
+        self::assertCount(1, $filteredResult->staleBaselineErrors);
+        self::assertStringContainsString('nonexistent.php -> other.php', $filteredResult->staleBaselineErrors[0]);
+    }
+
+    private function enforce(
+        ClassLoader $classLoader,
+        Configuration $configuration,
+    ): Result
+    {
+        return (new Modulint())->enforce($classLoader, __DIR__, $configuration);
     }
 
     private function createClassLoaderMock(): ClassLoader
@@ -316,6 +579,8 @@ final class ModulintTest extends TestCase
                     'ShipMonk\\Modulint\\Fixtures\\ModuleB\\ClassB' => __DIR__ . '/_fixtures/ModuleB/ClassB.php',
                     'ShipMonk\\Modulint\\Fixtures\\ModuleC\\ClassC' => __DIR__ . '/_fixtures/ModuleC/ClassC.php',
                     'ShipMonk\\Modulint\\Fixtures\\ModuleD\\ClassD' => __DIR__ . '/_fixtures/ModuleD/ClassD.php',
+                    'ShipMonk\\Modulint\\Fixtures\\ModuleF\\IgnoredAttr' => __DIR__ . '/_fixtures/ModuleF/IgnoredAttr.php',
+                    'ShipMonk\\Modulint\\Fixtures\\ModuleF\\AttributeUser' => __DIR__ . '/_fixtures/ModuleF/AttributeUser.php',
                     'ShipMonk\\Modulint\\Fixtures\\External\\ExternalClass' => __DIR__ . '/_fixtures/External/ExternalClass.php',
                 ];
 

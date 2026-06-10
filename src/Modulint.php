@@ -11,8 +11,10 @@ use PhpParser\ParserFactory;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use ReflectionClass;
+use ShipMonk\Modulint\Config\Configuration;
 use ShipMonk\Modulint\Error\ForbiddenDependencyError;
 use ShipMonk\Modulint\Error\MissingModuleError;
+use ShipMonk\Modulint\Error\OverlappingModulesError;
 use ShipMonk\Modulint\Error\UncoveredDependencyError;
 use ShipMonk\Modulint\Error\UnusedDependencyError;
 use ShipMonk\Modulint\Exception\LogicException;
@@ -30,28 +32,37 @@ use function realpath;
 use function str_ends_with;
 use function str_replace;
 use function str_starts_with;
+use function strcmp;
 use function strlen;
 use function substr;
 use function trait_exists;
+use function usort;
 
 final class Modulint
 {
 
-    /**
-     * @param list<Module> $modules
-     * @param list<string> $fullyModulizedDirectories
-     */
     public function enforce(
         ClassLoader $classLoader,
         string $baseDir,
-        array $modules,
-        array $fullyModulizedDirectories = [],
+        Configuration $configuration,
     ): Result
     {
+        $modules = $configuration->getModules();
+        $fullyModulizedDirectories = $configuration->getFullyModulizedDirectories();
+        $ignoredAttributes = $configuration->getIgnoredAttributes();
+
         $allModules = $this->collectAllModules($modules);
         $filesToModulesMap = $this->buildFilesToModulesMap($baseDir, $allModules);
         $missingModuleErrors = $this->detectMissingModules($baseDir, $filesToModulesMap, $fullyModulizedDirectories);
+        $overlappingModuleErrors = $configuration->isFlatModulesEnforced()
+            ? $this->detectOverlappingModules($baseDir, $filesToModulesMap)
+            : [];
         $phpParser = (new ParserFactory())->createForHostVersion();
+
+        $globalAllowedPathPrefixes = $this->resolvePathPrefixes($baseDir, $configuration->getAlwaysAllowedDependencyPaths());
+
+        /** @var array<string, list<string>> $allowedPathPrefixesByModule keyed by [moduleName] */
+        $allowedPathPrefixesByModule = [];
 
         $forbiddenDependencyErrors = [];
         $uncoveredDependencyErrors = [];
@@ -79,7 +90,7 @@ final class Modulint
             }
 
             $filePathRelative = $this->shortenPath($filePath, $baseDir);
-            $usedSymbols = $this->getUsedClassLikeSymbols($phpParser, $code);
+            $usedSymbols = $this->getUsedClassLikeSymbols($phpParser, $code, $ignoredAttributes);
 
             foreach ($usedSymbols as $usedSymbol) {
                 if ($this->isBuiltInSymbol($usedSymbol)) {
@@ -116,6 +127,13 @@ final class Modulint
                         if ($matched) {
                             continue;
                         }
+                    }
+
+                    $allowedPathPrefixes = $allowedPathPrefixesByModule[$fileModule->identifier->name]
+                        ??= [...$globalAllowedPathPrefixes, ...$this->resolvePathPrefixes($baseDir, $fileModule->allowedDependencyPaths)];
+
+                    if ($this->isPathWithinAny($usedSymbolPathNormalized, $allowedPathPrefixes)) {
+                        continue;
                     }
 
                     $usedSymbolPathRelative ??= $this->shortenPath($usedSymbolPathNormalized, $baseDir);
@@ -164,7 +182,60 @@ final class Modulint
             }
         }
 
-        return new Result($forbiddenDependencyErrors, $uncoveredDependencyErrors, $missingModuleErrors, $unusedDependencyErrors);
+        return new Result(
+            $forbiddenDependencyErrors,
+            $uncoveredDependencyErrors,
+            $missingModuleErrors,
+            $unusedDependencyErrors,
+            $overlappingModuleErrors,
+        );
+    }
+
+    /**
+     * @param array<string, non-empty-list<Module>> $filesToModulesMap
+     * @return array<string, non-empty-list<OverlappingModulesError>>
+     */
+    private function detectOverlappingModules(
+        string $baseDir,
+        array $filesToModulesMap,
+    ): array
+    {
+        $errors = [];
+
+        foreach ($filesToModulesMap as $filePath => $fileModules) {
+            foreach ($fileModules as $indexA => $moduleA) {
+                foreach ($fileModules as $indexB => $moduleB) {
+                    if ($indexB <= $indexA) {
+                        continue;
+                    }
+
+                    if ($moduleA->isChildOf($moduleB) || $moduleB->isChildOf($moduleA)) {
+                        continue;
+                    }
+
+                    $firstModule = $moduleA;
+                    $secondModule = $moduleB;
+
+                    if (strcmp($firstModule->identifier->name, $secondModule->identifier->name) > 0) {
+                        [$firstModule, $secondModule] = [$secondModule, $firstModule];
+                    }
+
+                    $pairKey = "{$firstModule->identifier->name} & {$secondModule->identifier->name}";
+                    $errors[$pairKey][] = new OverlappingModulesError(
+                        $this->shortenPath($filePath, $baseDir),
+                        $firstModule,
+                        $secondModule,
+                    );
+                }
+            }
+        }
+
+        foreach ($errors as $pairKey => $pairErrors) {
+            usort($pairErrors, static fn (OverlappingModulesError $a, OverlappingModulesError $b): int => strcmp($a->filePath, $b->filePath));
+            $errors[$pairKey] = $pairErrors;
+        }
+
+        return $errors;
     }
 
     /**
@@ -261,25 +332,68 @@ final class Modulint
         Module $module,
     ): array
     {
+        $excludedPathPrefixes = $this->resolvePathPrefixes($baseDir, $module->excludePaths);
         $files = [];
 
         foreach ($module->paths as $path) {
             $absolutePath = $this->isAbsolutePath($path) ? $path : "{$baseDir}/{$path}";
 
             if (is_file($absolutePath)) {
-                $files[] = $this->realPath($absolutePath);
+                $realPath = $this->realPath($absolutePath);
 
+                if (!$this->isPathWithinAny($realPath, $excludedPathPrefixes)) {
+                    $files[] = $realPath;
+                }
             } elseif (is_dir($absolutePath)) {
                 foreach ($this->findPhpFiles($absolutePath) as $file) {
-                    $files[] = $this->realPath($file->getPathname());
-                }
+                    $realPath = $this->realPath($file->getPathname());
 
+                    if (!$this->isPathWithinAny($realPath, $excludedPathPrefixes)) {
+                        $files[] = $realPath;
+                    }
+                }
             } else {
                 throw new LogicException("Path {$absolutePath} used by module {$module->identifier->name} does not exist");
             }
         }
 
         return $files;
+    }
+
+    /**
+     * @param list<string> $paths
+     * @return list<string>
+     */
+    private function resolvePathPrefixes(
+        string $baseDir,
+        array $paths,
+    ): array
+    {
+        $prefixes = [];
+
+        foreach ($paths as $path) {
+            $absolutePath = $this->isAbsolutePath($path) ? $path : "{$baseDir}/{$path}";
+            $prefixes[] = $this->realPath($absolutePath);
+        }
+
+        return $prefixes;
+    }
+
+    /**
+     * @param list<string> $pathPrefixes
+     */
+    private function isPathWithinAny(
+        string $path,
+        array $pathPrefixes,
+    ): bool
+    {
+        foreach ($pathPrefixes as $pathPrefix) {
+            if ($path === $pathPrefix || str_starts_with($path, "{$pathPrefix}/")) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -305,26 +419,31 @@ final class Modulint
     }
 
     /**
+     * @param list<string> $ignoredAttributes
      * @return list<string>
      */
     private function getUsedClassLikeSymbols(
         Parser $phpParser,
         string $code,
+        array $ignoredAttributes,
     ): array
     {
-        $nameResolver = new NameResolver();
-        $usedSymbolsExtractor = new ExtractUsedClassLikeSymbolsVisitor();
-        $traverser = new NodeTraverser();
-        $traverser->addVisitor($nameResolver);
-        $traverser->addVisitor($usedSymbolsExtractor);
-
         $ast = $phpParser->parse($code);
 
         if ($ast === null) {
             throw new LogicException('Failed to parse PHP code');
         }
 
-        $traverser->traverse($ast);
+        // names must be fully resolved before extraction, so that attribute names
+        // can be matched against $ignoredAttributes when entering the attribute node
+        $nameResolvingTraverser = new NodeTraverser();
+        $nameResolvingTraverser->addVisitor(new NameResolver());
+        $ast = $nameResolvingTraverser->traverse($ast);
+
+        $usedSymbolsExtractor = new ExtractUsedClassLikeSymbolsVisitor($ignoredAttributes);
+        $extractingTraverser = new NodeTraverser();
+        $extractingTraverser->addVisitor($usedSymbolsExtractor);
+        $extractingTraverser->traverse($ast);
 
         return $usedSymbolsExtractor->getUsedSymbols();
     }
