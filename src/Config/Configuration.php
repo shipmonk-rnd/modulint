@@ -2,6 +2,7 @@
 
 namespace ShipMonk\Modulint\Config;
 
+use PhpParser\NodeVisitor;
 use ShipMonk\Modulint\Module;
 
 /**
@@ -21,9 +22,9 @@ final class Configuration
     private array $fullyModulizedDirectories = [];
 
     /**
-     * @var list<string>
+     * @var list<NodeVisitor>
      */
-    private array $ignoredAttributes = [];
+    private array $astVisitors = [];
 
     /**
      * @var list<string>
@@ -63,17 +64,14 @@ final class Configuration
     }
 
     /**
-     * Class-like references inside arguments of listed attributes are not considered dependencies.
-     * The attribute class itself still counts as a dependency.
-     *
-     * @param list<string> $attributeClassNames
+     * Visitor participating in the used-symbol extraction traversal, running before the extracting visitor.
+     * Names are already resolved, so the visitor sees fully qualified names.
+     * Returning NodeTraverser::DONT_TRAVERSE_CHILDREN excludes the node's children from dependency analysis.
+     * Visitors are reused for all analyzed files, so they should be stateless.
      */
-    public function ignoreUsagesInAttributes(array $attributeClassNames): self
+    public function addAstVisitor(NodeVisitor $visitor): self
     {
-        foreach ($attributeClassNames as $attributeClassName) {
-            $this->ignoredAttributes[] = $attributeClassName;
-        }
-
+        $this->astVisitors[] = $visitor;
         return $this;
     }
 
@@ -123,11 +121,11 @@ final class Configuration
     }
 
     /**
-     * @return list<string>
+     * @return list<NodeVisitor>
      */
-    public function getIgnoredAttributes(): array
+    public function getAstVisitors(): array
     {
-        return $this->ignoredAttributes;
+        return $this->astVisitors;
     }
 
     /**

@@ -5,9 +5,7 @@ namespace ShipMonk\Modulint;
 use PhpParser\Node;
 use PhpParser\Node\Attribute;
 use PhpParser\Node\Name\FullyQualified;
-use PhpParser\NodeTraverser;
 use PhpParser\NodeVisitorAbstract;
-use function array_fill_keys;
 use function array_keys;
 
 final class ExtractUsedClassLikeSymbolsVisitor extends NodeVisitorAbstract
@@ -18,27 +16,12 @@ final class ExtractUsedClassLikeSymbolsVisitor extends NodeVisitorAbstract
      */
     private array $usedSymbols = [];
 
-    /**
-     * @var array<string, true>
-     */
-    private array $ignoredAttributes;
-
-    /**
-     * @param list<string> $ignoredAttributes
-     */
-    public function __construct(array $ignoredAttributes = [])
-    {
-        $this->ignoredAttributes = array_fill_keys($ignoredAttributes, true);
-    }
-
     public function enterNode(Node $node): ?int
     {
         if ($node instanceof Attribute && $node->name instanceof FullyQualified) {
+            // recorded on attribute entry, so the attribute class counts as a dependency
+            // even when a custom visitor skips the attribute's children
             $this->usedSymbols[$node->name->toString()] = true;
-
-            if (isset($this->ignoredAttributes[$node->name->toString()])) {
-                return NodeTraverser::DONT_TRAVERSE_CHILDREN;
-            }
 
             return null;
         }

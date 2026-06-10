@@ -5,6 +5,7 @@ namespace ShipMonk\Modulint;
 use Composer\Autoload\ClassLoader;
 use FilesystemIterator;
 use PhpParser\NodeTraverser;
+use PhpParser\NodeVisitor;
 use PhpParser\NodeVisitor\NameResolver;
 use PhpParser\Parser;
 use PhpParser\ParserFactory;
@@ -49,7 +50,7 @@ final class Modulint
     {
         $modules = $configuration->getModules();
         $fullyModulizedDirectories = $configuration->getFullyModulizedDirectories();
-        $ignoredAttributes = $configuration->getIgnoredAttributes();
+        $astVisitors = $configuration->getAstVisitors();
 
         $allModules = $this->collectAllModules($modules);
         $filesToModulesMap = $this->buildFilesToModulesMap($baseDir, $allModules);
@@ -90,7 +91,7 @@ final class Modulint
             }
 
             $filePathRelative = $this->shortenPath($filePath, $baseDir);
-            $usedSymbols = $this->getUsedClassLikeSymbols($phpParser, $code, $ignoredAttributes);
+            $usedSymbols = $this->getUsedClassLikeSymbols($phpParser, $code, $astVisitors);
 
             foreach ($usedSymbols as $usedSymbol) {
                 if ($this->isBuiltInSymbol($usedSymbol)) {
@@ -419,13 +420,13 @@ final class Modulint
     }
 
     /**
-     * @param list<string> $ignoredAttributes
+     * @param list<NodeVisitor> $astVisitors
      * @return list<string>
      */
     private function getUsedClassLikeSymbols(
         Parser $phpParser,
         string $code,
-        array $ignoredAttributes,
+        array $astVisitors,
     ): array
     {
         $ast = $phpParser->parse($code);
@@ -434,14 +435,19 @@ final class Modulint
             throw new LogicException('Failed to parse PHP code');
         }
 
-        // names must be fully resolved before extraction, so that attribute names
-        // can be matched against $ignoredAttributes when entering the attribute node
+        // names must be fully resolved before extraction, so that custom visitors
+        // can match fully qualified names when entering nodes
         $nameResolvingTraverser = new NodeTraverser();
         $nameResolvingTraverser->addVisitor(new NameResolver());
         $ast = $nameResolvingTraverser->traverse($ast);
 
-        $usedSymbolsExtractor = new ExtractUsedClassLikeSymbolsVisitor($ignoredAttributes);
+        $usedSymbolsExtractor = new ExtractUsedClassLikeSymbolsVisitor();
         $extractingTraverser = new NodeTraverser();
+
+        foreach ($astVisitors as $astVisitor) {
+            $extractingTraverser->addVisitor($astVisitor);
+        }
+
         $extractingTraverser->addVisitor($usedSymbolsExtractor);
         $extractingTraverser->traverse($ast);
 

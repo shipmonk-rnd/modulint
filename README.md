@@ -160,15 +160,26 @@ To allow a path for *every* module, configure it globally:
 
 Symbols resolved into an allowed path never produce forbidden or uncovered errors, even when the path is also covered by other modules.
 
-### Ignored attribute usages
+### Custom AST visitors
 
-Class references inside arguments of selected attributes can be excluded from analysis (the attribute class itself still counts):
+You can hook into the used-symbol extraction with your own php-parser visitors, e.g. to exclude class references inside arguments of a marker attribute from analysis:
 
 ```php
-(new Configuration())->ignoreUsagesInAttributes([InternalAllowedScope::class])
+(new Configuration())->addAstVisitor(new class extends NodeVisitorAbstract {
+    public function enterNode(Node $node): ?int
+    {
+        if ($node instanceof Attribute
+            && $node->name instanceof FullyQualified
+            && $node->name->toString() === InternalAllowedScope::class
+        ) {
+            return NodeTraverser::DONT_TRAVERSE_CHILDREN;
+        }
+        return null;
+    }
+})
 ```
 
-With that config, `#[InternalAllowedScope([SomeClass::class, 'method'])]` does not make the enclosing module depend on `SomeClass`.
+With that config, `#[InternalAllowedScope([SomeClass::class, 'method'])]` does not make the enclosing module depend on `SomeClass` (the attribute class itself still counts). Custom visitors run after name resolution (you always see fully qualified names) and before the extracting visitor; returning `NodeTraverser::DONT_TRAVERSE_CHILDREN` excludes a node's children from dependency analysis. Visitors are reused for all analyzed files, so keep them stateless.
 
 ### Flat modules
 

@@ -3,6 +3,11 @@
 namespace ShipMonk\Modulint\Tests;
 
 use Composer\Autoload\ClassLoader;
+use PhpParser\Node;
+use PhpParser\Node\Attribute;
+use PhpParser\Node\Name\FullyQualified;
+use PhpParser\NodeTraverser;
+use PhpParser\NodeVisitorAbstract;
 use PHPUnit\Framework\TestCase;
 use ShipMonk\Modulint\Baseline\Baseline;
 use ShipMonk\Modulint\Baseline\BaselineGenerator;
@@ -417,7 +422,7 @@ final class ModulintTest extends TestCase
         self::assertArrayHasKey('ModuleB', $result->forbiddenDependencyErrors['ModuleF']);
     }
 
-    public function testEnforceWithIgnoredAttributeUsage(): void
+    public function testEnforceWithAstVisitorIgnoringAttributeUsage(): void
     {
         $classLoader = $this->createClassLoaderMock();
 
@@ -434,11 +439,27 @@ final class ModulintTest extends TestCase
             [],
         );
 
+        $ignoreAttributeArgumentsVisitor = new class extends NodeVisitorAbstract {
+
+            public function enterNode(Node $node): ?int
+            {
+                if ($node instanceof Attribute
+                    && $node->name instanceof FullyQualified
+                    && $node->name->toString() === IgnoredAttr::class
+                ) {
+                    return NodeTraverser::DONT_TRAVERSE_CHILDREN;
+                }
+
+                return null;
+            }
+
+        };
+
         $result = $this->enforce(
             $classLoader,
             (new Configuration())
                 ->addModules([$moduleF, $moduleB])
-                ->ignoreUsagesInAttributes([IgnoredAttr::class]),
+                ->addAstVisitor($ignoreAttributeArgumentsVisitor),
         );
 
         self::assertTrue($result->isSuccessful());
