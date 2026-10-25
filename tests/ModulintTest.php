@@ -19,10 +19,10 @@ final class ModulintTest extends TestCase
         $result = $modulint->enforce($classLoader, __DIR__, []);
 
         self::assertTrue($result->isSuccessful());
-        self::assertEmpty($result->forbiddenDependencyErrors);
-        self::assertEmpty($result->uncoveredDependencyErrors);
-        self::assertEmpty($result->missingModuleErrors);
-        self::assertEmpty($result->unusedDependencyErrors);
+        self::assertSame([], $result->forbiddenDependencyErrors);
+        self::assertSame([], $result->uncoveredDependencyErrors);
+        self::assertSame([], $result->missingModuleErrors);
+        self::assertSame([], $result->unusedDependencyErrors);
     }
 
     public function testEnforceWithForbiddenDependency(): void
@@ -46,7 +46,7 @@ final class ModulintTest extends TestCase
         $result = $modulint->enforce($classLoader, __DIR__, [$moduleA, $moduleB]);
 
         self::assertFalse($result->isSuccessful());
-        self::assertNotEmpty($result->forbiddenDependencyErrors);
+        self::assertNotSame([], $result->forbiddenDependencyErrors);
         self::assertArrayHasKey('ModuleA', $result->forbiddenDependencyErrors);
         self::assertArrayHasKey('ModuleB', $result->forbiddenDependencyErrors['ModuleA']);
     }
@@ -72,10 +72,10 @@ final class ModulintTest extends TestCase
         $result = $modulint->enforce($classLoader, __DIR__, [$moduleA, $moduleB]);
 
         self::assertTrue($result->isSuccessful());
-        self::assertEmpty($result->forbiddenDependencyErrors);
-        self::assertEmpty($result->uncoveredDependencyErrors);
-        self::assertEmpty($result->missingModuleErrors);
-        self::assertEmpty($result->unusedDependencyErrors);
+        self::assertSame([], $result->forbiddenDependencyErrors);
+        self::assertSame([], $result->uncoveredDependencyErrors);
+        self::assertSame([], $result->missingModuleErrors);
+        self::assertSame([], $result->unusedDependencyErrors);
     }
 
     public function testEnforceWithUncoveredDependency(): void
@@ -93,7 +93,7 @@ final class ModulintTest extends TestCase
         $result = $modulint->enforce($classLoader, __DIR__, [$moduleC]);
 
         self::assertFalse($result->isSuccessful());
-        self::assertNotEmpty($result->uncoveredDependencyErrors);
+        self::assertNotSame([], $result->uncoveredDependencyErrors);
         self::assertArrayHasKey('ModuleC', $result->uncoveredDependencyErrors);
     }
 
@@ -110,7 +110,7 @@ final class ModulintTest extends TestCase
         );
 
         self::assertFalse($result->isSuccessful());
-        self::assertNotEmpty($result->missingModuleErrors);
+        self::assertNotSame([], $result->missingModuleErrors);
         self::assertArrayHasKey('_fixtures/FullyModulized', $result->missingModuleErrors);
     }
 
@@ -135,10 +135,10 @@ final class ModulintTest extends TestCase
         $result = $modulint->enforce($classLoader, __DIR__, [$moduleA, $moduleB]);
 
         self::assertTrue($result->isSuccessful());
-        self::assertEmpty($result->forbiddenDependencyErrors);
-        self::assertEmpty($result->uncoveredDependencyErrors);
-        self::assertEmpty($result->missingModuleErrors);
-        self::assertEmpty($result->unusedDependencyErrors);
+        self::assertSame([], $result->forbiddenDependencyErrors);
+        self::assertSame([], $result->uncoveredDependencyErrors);
+        self::assertSame([], $result->missingModuleErrors);
+        self::assertSame([], $result->unusedDependencyErrors);
     }
 
     public function testEnforceWithNestedModuleAllowedDependency(): void
@@ -173,9 +173,9 @@ final class ModulintTest extends TestCase
         $result = $modulint->enforce($classLoader, __DIR__, [$moduleA, $moduleB, $parentAB, $moduleD]);
 
         self::assertTrue($result->isSuccessful());
-        self::assertEmpty($result->forbiddenDependencyErrors);
-        self::assertEmpty($result->uncoveredDependencyErrors);
-        self::assertEmpty($result->unusedDependencyErrors);
+        self::assertSame([], $result->forbiddenDependencyErrors);
+        self::assertSame([], $result->uncoveredDependencyErrors);
+        self::assertSame([], $result->unusedDependencyErrors);
     }
 
     public function testEnforceWithNestedModuleForbiddenDependency(): void
@@ -210,7 +210,7 @@ final class ModulintTest extends TestCase
         $result = $modulint->enforce($classLoader, __DIR__, [$moduleA, $moduleB, $parentAB, $moduleD]);
 
         self::assertFalse($result->isSuccessful());
-        self::assertNotEmpty($result->forbiddenDependencyErrors);
+        self::assertNotSame([], $result->forbiddenDependencyErrors);
         self::assertArrayHasKey('ModuleD', $result->forbiddenDependencyErrors);
     }
 
@@ -270,7 +270,7 @@ final class ModulintTest extends TestCase
         $result = $modulint->enforce($classLoader, __DIR__, [$moduleA, $parentAB], ['_fixtures/ModuleA']);
 
         self::assertTrue($result->isSuccessful());
-        self::assertEmpty($result->missingModuleErrors);
+        self::assertSame([], $result->missingModuleErrors);
     }
 
     public function testEnforceWithUnusedDependency(): void
@@ -300,7 +300,7 @@ final class ModulintTest extends TestCase
         $result = $modulint->enforce($classLoader, __DIR__, [$moduleA, $moduleB, $moduleC]);
 
         self::assertFalse($result->isSuccessful());
-        self::assertEmpty($result->forbiddenDependencyErrors);
+        self::assertSame([], $result->forbiddenDependencyErrors);
         self::assertArrayHasKey('ModuleA', $result->unusedDependencyErrors);
         self::assertCount(1, $result->unusedDependencyErrors['ModuleA']);
         self::assertSame(TestModuleIdentifier::ModuleC, $result->unusedDependencyErrors['ModuleA'][0]->unusedDependency);
